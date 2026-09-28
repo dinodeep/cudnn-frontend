@@ -38,6 +38,7 @@ __all__ = [
     "neg_inf_init",
     "grouped_gemm_swiglu",
     "grouped_gemm_dswiglu",
+    "grouped_gemm_glu",
     "kimi_delta_attention",
     "kimi_delta_attention_fwd",
     "kimi_delta_attention_bwd",
@@ -58,6 +59,15 @@ def __getattr__(name):
         operation = name.removeprefix("grouped_gemm_")
         module = import_module(f"cudnn.gemm.cutedsl.grouped.{operation}.jax_api")
         value = getattr(module, name)
+        globals()[name] = value
+        return value
+    if name == "grouped_gemm_glu":
+        from cudnn.frost.buffers import cutedsl_requirement_error
+
+        requirement = cutedsl_requirement_error(name)
+        if requirement:
+            raise ImportError(requirement)
+        value = import_module("cudnn.gemm.cutedsl.grouped.glu.jax_blockscaled_api").grouped_gemm_glu
         globals()[name] = value
         return value
     if name in ("kimi_delta_attention", "kimi_delta_attention_fwd", "kimi_delta_attention_bwd"):

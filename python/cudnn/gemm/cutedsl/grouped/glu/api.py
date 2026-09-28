@@ -1188,6 +1188,40 @@ def grouped_gemm_glu_wrapper_sm100(
     sf_fp8_dtype_override: Optional[Literal["e5m3"]] = None,
 ) -> TupleDict:
     """Dispatch grouped GEMM GLU once from an immutable normalized call."""
+    if detect_framework(a_tensor) == "jax" and b_tensor is not None:
+        if any(x is not None for x in (bias_tensor, b_ptrs, sfb_ptrs, n, b_dtype)):
+            raise ValueError("JAX dense MXFP8 GLU does not support bias or discrete-weight arguments")
+        if (sf_vec_size, act_func, cd_major, b_major) != (32, "swiglu", "n", "k"):
+            raise ValueError("JAX dense MXFP8 GLU requires sf_vec_size=32, swiglu, cd_major='n', b_major='k'")
+        if acc_dtype is not None and _convert_to_cutlass_data_type(acc_dtype) is not cutlass.Float32:
+            raise ValueError("JAX dense MXFP8 GLU requires float32 accumulation")
+        if any(
+            (vector_f32, discrete_col_sfd, use_dynamic_sched, use_single_group_runtime_offsets, current_stream is not None, sf_fp8_dtype_override is not None)
+        ):
+            raise ValueError("Unsupported option for JAX dense MXFP8 GLU")
+        if linear_offset not in (None, 0.0) or geglu_alpha != 1.702 or glu_clamp_max != 7.0 or glu_clamp_min != -7.0 or situ_beta1 != 4.0 or situ_beta2 != 25.0:
+            raise ValueError("JAX dense MXFP8 GLU does not support activation overrides")
+        if m_aligned != 256 or prob_tensor is None or norm_const_tensor is None:
+            raise ValueError("JAX dense MXFP8 GLU requires 256-row alignment, prob_tensor and norm_const_tensor")
+        from .jax_blockscaled_api import grouped_gemm_glu
+
+        result = grouped_gemm_glu(
+            a_tensor=a_tensor,
+            b_tensor=b_tensor,
+            sfa_tensor=sfa_tensor,
+            sfb_tensor=sfb_tensor,
+            padded_offsets=padded_offsets,
+            alpha_tensor=alpha_tensor,
+            prob_tensor=prob_tensor,
+            norm_const_tensor=norm_const_tensor,
+            c_dtype=c_dtype or cutlass.BFloat16,
+            d_dtype=d_dtype or cutlass.Float8E4M3FN,
+            mma_tiler_mn=mma_tiler_mn,
+            cluster_shape_mn=cluster_shape_mn,
+        )
+        if not generate_c:
+            result["c_tensor"] = None
+        return result
     # Hot-loop memo; see wrapper_operand_meta for the rationale. Everything
     # from here to api.execute() is derivation -- dtype resolution, GluCall construction,
     # normalization, and the op cache-key rebuild -- and is a pure function of the
