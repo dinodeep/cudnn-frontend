@@ -46,6 +46,7 @@ def grouped_gemm_swiglu(
     d_dtype=cutlass.Float8E4M3FN,
     mma_tiler_mn=(256, 256),
     cluster_shape_mn=None,
+    discrete_col_sfd=False,
 ):
     """Canonical MXFP8 forward, eagerly or under jax.jit.
 
@@ -54,7 +55,8 @@ def grouped_gemm_swiglu(
     must be nondecreasing multiples of 256 within [0,m]; m is padded to 256.
     SF buffers contain packed E8M0 MMA-tiled bytes, at any dense rank (uint8
     bit patterns also accepted). Outputs use natural 2-D shapes and physical
-    6-D SF buffers. Data outputs are uninitialized for inactive padding, as in
+    6-D SF buffers. ``discrete_col_sfd=True`` packs column scales by expert
+    for grouped GEMM consumers. Data outputs are uninitialized for inactive padding, as in
     the PyTorch path; scale-factor buffers are initialized for padded rows.
     Only FP8 A/B and FP8 D are supported. No automatic differentiation rule;
     use cudnn.jax.grouped_gemm_dswiglu for the fused backward operation.
@@ -81,7 +83,9 @@ def grouped_gemm_swiglu(
         sfd_row=output_type(sf_shape(m, n // 2), cutlass.Float8E8M0FNU),
         sfd_col=output_type(sf_shape(n // 2, m), cutlass.Float8E8M0FNU),
     )
-    kernel, mac = grouped_plan(GroupedGemmSwigluSm100, inputs, outputs, backward=False, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn)
+    kernel, mac = grouped_plan(
+        GroupedGemmSwigluSm100, inputs, outputs, backward=False, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn, discrete_col_sfd=discrete_col_sfd
+    )
     result = grouped_call(
         grouped_swiglu_adapter,
         kernel,

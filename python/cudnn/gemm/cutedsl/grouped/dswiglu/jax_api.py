@@ -49,6 +49,7 @@ def grouped_gemm_dswiglu(
     d_dtype=cutlass.Float8E4M3FN,
     mma_tiler_mn=(256, 256),
     cluster_shape_mn=None,
+    discrete_col_sfd=False,
 ):
     """Canonical MXFP8 backward, eagerly or under jax.jit.
 
@@ -58,7 +59,8 @@ def grouped_gemm_dswiglu(
     within [0,m]; m is padded to 256. SF buffers contain packed E8M0 MMA-tiled
     bytes at any dense rank (uint8 bit patterns also accepted). Returns
     D_row/D_col (m,2n), dprob (m,), and physical 6-D SF buffers. Output storage
-    initializes dprob for accumulation and scale factors for padded rows; data
+    initializes dprob for accumulation and scale factors for padded rows.
+    ``discrete_col_sfd=True`` packs column scales by expert; data
     outputs are uninitialized for inactive padding. Only FP8 A/B/D.
     """
     inputs = dict(
@@ -85,7 +87,9 @@ def grouped_gemm_dswiglu(
         sfd_row=output_type(sf_shape(m, 2 * n), cutlass.Float8E8M0FNU),
         sfd_col=output_type(sf_shape(2 * n, m), cutlass.Float8E8M0FNU),
     )
-    kernel, mac = grouped_plan(GroupedGemmDswigluSm100, inputs, outputs, backward=True, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn)
+    kernel, mac = grouped_plan(
+        GroupedGemmDswigluSm100, inputs, outputs, backward=True, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn, discrete_col_sfd=discrete_col_sfd
+    )
     result = grouped_call(
         grouped_dswiglu_adapter,
         kernel,

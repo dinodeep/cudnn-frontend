@@ -66,6 +66,7 @@ def grouped_gemm_glu(
     d_dtype=cutlass.Float8E4M3FN,
     mma_tiler_mn=(256, 256),
     cluster_shape_mn=None,
+    discrete_col_sfd=False,
 ):
     """Run dense Rubin MXFP8 SwiGLU, eagerly or under ``jax.jit``.
 
@@ -73,7 +74,7 @@ def grouped_gemm_glu(
     buffers contain E8M0 MMA atom bytes in physical row-major form. Offsets
     are cumulative 256-aligned expert ends. The returned keys match the
     PyTorch GLU wrapper; C is retained for the separate backward operation.
-    Data outputs are uninitialized for inactive padding, while scale-factor
+    ``discrete_col_sfd=True`` packs column scales by expert. Data outputs are uninitialized for inactive padding, while scale-factor
     outputs are initialized for padded rows.
     """
     from cudnn.api_base import is_sm107_device
@@ -125,7 +126,7 @@ def grouped_gemm_glu(
         raise ValueError("Unsupported Rubin GLU tile or cluster configuration")
 
     margin = int(os.getenv("CUDNNFE_CLUSTER_OVERLAP_MARGIN", "0"))
-    key = (experts, mma_tiler_mn, cluster_shape_mn, margin)
+    key = (experts, mma_tiler_mn, cluster_shape_mn, margin, discrete_col_sfd)
     entry = _kernel_cache.get(key)
     if entry is None:
         kernel = BlockScaledMoEGroupedGemmGluKernel(
@@ -136,7 +137,7 @@ def grouped_gemm_glu(
             cluster_shape_mn=cluster_shape_mn,
             vectorized_f32=False,
             generate_sfd=True,
-            discrete_col_sfd=False,
+            discrete_col_sfd=discrete_col_sfd,
             expert_cnt=experts,
             weight_mode=MoEWeightMode.DENSE,
             act_func="swiglu",

@@ -50,7 +50,7 @@ def output_type(shape, dtype):
     return jax.ShapeDtypeStruct(shape, framework_dtype(dtype, "jax"))
 
 
-def grouped_plan(api_type, inputs, outputs, *, backward, mma_tiler_mn, cluster_shape_mn):
+def grouped_plan(api_type, inputs, outputs, *, backward, mma_tiler_mn, cluster_shape_mn, discrete_col_sfd=False):
     a, b = inputs["a"], inputs["b"]
     if a.ndim != 2 or b.ndim != 3:
         raise ValueError("A must have shape (m, k) and B (experts, n, k)")
@@ -80,12 +80,12 @@ def grouped_plan(api_type, inputs, outputs, *, backward, mma_tiler_mn, cluster_s
     if backward and _convert_to_cutlass_data_type(d.dtype) is not cutlass.Float8E4M3FN:
         raise ValueError("d_dtype must be e4m3 for JAX backward; the packed backward quantizer does not support e5m2")
     margin = int(os.getenv("CUDNNFE_CLUSTER_OVERLAP_MARGIN", "0"))
-    config = (backward, experts, mma_tiler_mn, cluster_shape_mn, margin)
+    config = (backward, experts, mma_tiler_mn, cluster_shape_mn, margin, discrete_col_sfd)
     signature = tuple((name, tuple(t.shape), str(t.dtype)) for name, t in (*inputs.items(), *outputs.items()))
     validation_key = (config, signature)
     if validation_key not in validated_configs:
         samples = {f"sample_{name}": row_major_desc(t.shape, t.dtype, f"sample_{name}") for name, t in (*inputs.items(), *outputs.items())}
-        api = api_type(**samples, sf_vec_size=32, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn)
+        api = api_type(**samples, sf_vec_size=32, mma_tiler_mn=mma_tiler_mn, cluster_shape_mn=cluster_shape_mn, discrete_col_sfd=discrete_col_sfd)
         api.check_support()
         if config not in kernel_cache:
             kwargs = dict(
@@ -94,7 +94,7 @@ def grouped_plan(api_type, inputs, outputs, *, backward, mma_tiler_mn, cluster_s
                 use_2cta_instrs=api.use_2cta_instrs,
                 mma_tiler_mn=mma_tiler_mn,
                 cluster_shape_mn=api.cluster_shape_mn,
-                discrete_col_sfd=False,
+                discrete_col_sfd=discrete_col_sfd,
                 expert_cnt=experts,
                 use_mono_increase_expert_idx=True,
             )
@@ -144,7 +144,6 @@ def check_jax_wrapper_options(
     sf_vec_size,
     vector_f32,
     m_aligned,
-    discrete_col_sfd,
     current_stream,
     epilogue_op=None,
     dprob_tensor_buf=None,
@@ -156,7 +155,6 @@ def check_jax_wrapper_options(
         "sf_vec_size": sf_vec_size == 32,
         "vector_f32": not vector_f32,
         "m_aligned": m_aligned == 256,
-        "discrete_col_sfd": not discrete_col_sfd,
         "current_stream": current_stream is None,
         "epilogue_op": epilogue_op in (None, "none", "identity"),
         "dprob_tensor_buf": dprob_tensor_buf is None,

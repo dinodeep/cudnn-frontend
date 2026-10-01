@@ -3,6 +3,8 @@
 
 """Legacy JAX layouts and direct API-class samples remain unsupported; canonical MXFP8 wrapper coverage lives in test_grouped_gemm_canonical_jax.py."""
 
+from functools import partial
+
 import numpy as np
 import pytest
 
@@ -26,6 +28,45 @@ def _make_jax_inputs(m=256, n=128, k=128, l=2):
     beta_j = jnp.asarray(np.ones(l, dtype=np.float32))
     prob_j = jnp.asarray(np.ones((m, 1, 1), dtype=np.float32))
     return a_j, b_j, c_j, sfa_j, sfb_j, offsets_j, alpha_j, beta_j, prob_j
+
+
+@pytest.mark.L0
+@pytest.mark.parametrize("shared_wrapper", [False, True])
+def test_grouped_gemm_dswiglu_discrete_col_scales_are_expert_packed(shared_wrapper):
+    skip_unless_sm100()
+    if shared_wrapper:
+        from cudnn import grouped_gemm_dswiglu_wrapper_sm100
+
+        grouped_gemm_dswiglu = partial(grouped_gemm_dswiglu_wrapper_sm100, sf_vec_size=32)
+    else:
+        from cudnn.jax import grouped_gemm_dswiglu
+
+    rows, hidden, intermediate = 512, 256, 256
+    scale = jnp.full((1, 4, 2, 32, 4, 4), 127, jnp.uint8)
+    inputs = dict(
+        a_tensor=jnp.concatenate(
+            [
+                jnp.full((256, hidden), 0.125, ml_dtypes.float8_e4m3fn),
+                jnp.full((256, hidden), 0.25, ml_dtypes.float8_e4m3fn),
+            ]
+        ),
+        b_tensor=jnp.full((2, intermediate, hidden), 0.125, ml_dtypes.float8_e4m3fn),
+        c_tensor=jnp.ones((rows, 2 * intermediate), jnp.bfloat16),
+        sfa_tensor=scale,
+        sfb_tensor=jnp.tile(scale[:, :2], (2, 1, 1, 1, 1, 1)),
+        padded_offsets=jnp.array([256, 512], jnp.int32),
+        alpha_tensor=jnp.ones((2,), jnp.float32),
+        beta_tensor=jnp.ones((2,), jnp.float32),
+        prob_tensor=jnp.ones((rows,), jnp.float32),
+        norm_const_tensor=jnp.ones((1,), jnp.float32),
+    )
+    grouped_gemm_dswiglu = partial(grouped_gemm_dswiglu, d_dtype=ml_dtypes.float8_e4m3fn, discrete_col_sfd=True)
+    result = jax.jit(grouped_gemm_dswiglu)(**inputs)
+    col_scales = np.asarray(result["sfd_col_tensor"]).view(np.uint8).reshape(2, -1)
+    first_expert_scales = np.unique(col_scales[0])
+    second_expert_scales = np.unique(col_scales[1])
+    assert first_expert_scales.size == second_expert_scales.size == 2
+    assert np.all(first_expert_scales < second_expert_scales)
 
 
 @pytest.mark.L0

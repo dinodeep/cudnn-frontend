@@ -72,7 +72,8 @@ def test_dense_mxfp8_glu_jax_rejects_short_scale():
         grouped_gemm_glu(**inputs)
 
 
-def test_dense_mxfp8_glu_jax_uses_each_experts_weights():
+@pytest.mark.parametrize("discrete_col_sfd", [False, True])
+def test_dense_mxfp8_glu_jax_uses_each_experts_weights(discrete_col_sfd):
     _require_rubin()
     from cudnn.jax import grouped_gemm_glu
 
@@ -84,10 +85,15 @@ def test_dense_mxfp8_glu_jax_uses_each_experts_weights():
     inputs["padded_offsets"] = jnp.array([256, 512], jnp.int32)
     inputs["alpha_tensor"] = jnp.ones((2,), jnp.float32)
     inputs["prob_tensor"] = jnp.ones((512,), jnp.float32)
-    output = jax.jit(grouped_gemm_glu)(**inputs)
+    output = jax.jit(partial(grouped_gemm_glu, discrete_col_sfd=discrete_col_sfd))(**inputs)
     c = np.asarray(output["c_tensor"])[:, 0, 0]
     np.testing.assert_array_equal(c[:256], 4)
     np.testing.assert_array_equal(c[256:], 8)
+    if discrete_col_sfd:
+        col_scales = np.asarray(output["sfd_col_tensor"]).view(np.uint8).reshape(2, -1)
+        assert np.unique(col_scales[0]).size == 1
+        assert np.unique(col_scales[1]).size == 1
+        assert col_scales[0, 0] != col_scales[1, 0]
 
 
 def test_dense_mxfp8_glu_jax_initializes_unused_scale_rows():
