@@ -56,8 +56,8 @@ def grouped_gemm_swiglu(
     SF buffers contain packed E8M0 MMA-tiled bytes, at any dense rank (uint8
     bit patterns also accepted). Outputs use natural 2-D shapes and physical
     6-D SF buffers. ``discrete_col_sfd=True`` packs column scales by expert
-    for grouped GEMM consumers. Data outputs are uninitialized for inactive padding, as in
-    the PyTorch path; scale-factor buffers are initialized for padded rows.
+    for grouped GEMM consumers. Data and scale-factor outputs are uninitialized
+    for inactive padding, as in the PyTorch path.
     Only FP8 A/B and FP8 D are supported. No automatic differentiation rule;
     use cudnn.jax.grouped_gemm_dswiglu for the fused backward operation.
     """

@@ -96,7 +96,7 @@ def test_dense_mxfp8_glu_jax_uses_each_experts_weights(discrete_col_sfd):
         assert col_scales[0, 0] != col_scales[1, 0]
 
 
-def test_dense_mxfp8_glu_jax_initializes_unused_scale_rows():
+def test_dense_mxfp8_glu_jax_writes_active_scale_rows():
     _require_rubin()
     from cudnn.jax import grouped_gemm_glu
 
@@ -107,5 +107,7 @@ def test_dense_mxfp8_glu_jax_initializes_unused_scale_rows():
     output = jax.jit(grouped_gemm_glu)(**inputs)
 
     np.testing.assert_array_equal(np.asarray(output["c_tensor"])[:256], 4)
-    np.testing.assert_array_equal(np.asarray(output["sfd_row_tensor"]).view(np.uint8)[:, 2:], 0)
-    np.testing.assert_array_equal(np.asarray(output["sfd_col_tensor"]).view(np.uint8)[:, :, 2:], 0)
+    row_scales = np.asarray(output["sfd_row_tensor"]).view(np.uint8)[:, :2]
+    col_scales = np.asarray(output["sfd_col_tensor"]).view(np.uint8)[:, :, :2]
+    assert np.all((row_scales > 0) & (row_scales < 255))
+    assert np.all((col_scales > 0) & (col_scales < 255))

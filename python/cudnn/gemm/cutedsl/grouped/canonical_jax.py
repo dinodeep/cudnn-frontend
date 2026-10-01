@@ -9,7 +9,6 @@ from functools import lru_cache
 import cutlass
 import cutlass.utils
 import jax
-import jax.numpy as jnp
 import ml_dtypes
 
 from cudnn.api_base import TupleDict, ceil_div
@@ -36,10 +35,6 @@ def sf_array(array):
     if _convert_to_cutlass_data_type(array.dtype) is cutlass.Uint8:
         return array.view(ml_dtypes.float8_e8m0fnu)
     return array
-
-
-def sf_zeros(shape_dtype):
-    return jnp.zeros(shape_dtype.shape, jnp.uint8).view(shape_dtype.dtype)
 
 
 def sf_shape(rows, cols):
@@ -123,15 +118,12 @@ def check_jax_inputs(inputs):
 
 @lru_cache(maxsize=128)
 def grouped_call(adapter, kernel, mac, input_types, output_types, *, backward):
-    initializers = {3: sf_zeros, 4: sf_zeros}
-    if backward:
-        initializers[2] = zeros_init
     return call(
         adapter,
         output_shape_dtype=output_types,
         input_spec=tuple(row_spec(t) for t in input_types),
         output_spec=tuple(row_spec(t) for t in output_types),
-        initialized_outputs=initializers,
+        initialized_outputs={2: zeros_init} if backward else None,
         kernel=kernel,
         mac=mac,
     )

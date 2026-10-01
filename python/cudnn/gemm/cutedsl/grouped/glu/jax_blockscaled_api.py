@@ -17,7 +17,7 @@ from cudnn.api_base import TupleDict
 from cudnn.datatypes import _convert_to_cutlass_data_type
 from cudnn.jax import TensorSpec, call, gemm_operand_spec, zeros_init
 from cudnn.tensor_adapter import detect_framework
-from ..canonical_jax import output_type, sf_array, sf_shape, sf_zeros
+from ..canonical_jax import output_type, sf_array, sf_shape
 from ..moe_utils import MoEWeightMode
 from .moe_blockscaled_grouped_gemm_glu_rubin import BlockScaledMoEGroupedGemmGluKernel
 
@@ -75,7 +75,7 @@ def grouped_gemm_glu(
     are cumulative 256-aligned expert ends. The returned keys match the
     PyTorch GLU wrapper; C is retained for the separate backward operation.
     ``discrete_col_sfd=True`` packs column scales by expert. Data outputs are uninitialized for inactive padding, while scale-factor
-    outputs are initialized for padded rows.
+    output scales are undefined for inactive padded rows.
     """
     from cudnn.api_base import is_sm107_device
 
@@ -164,7 +164,6 @@ def grouped_gemm_glu(
         output_shape_dtype=outputs,
         input_spec=(operand, TensorSpec(mode=(1, 2, 0)), None, None, None, None, None, None),
         output_spec=(operand, operand, operand, None, None, None),
-        initialized_outputs={3: sf_zeros, 4: sf_zeros},
         kernel=kernel,
         mac=mac,
     )(

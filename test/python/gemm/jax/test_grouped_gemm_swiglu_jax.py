@@ -26,6 +26,35 @@ def make_jax_inputs(m=256, n=256, k=128, experts=2):
 
 
 @pytest.mark.L0
+def test_grouped_gemm_swiglu_jax_writes_active_scales_without_initialization():
+    from cudnn.jax import grouped_gemm_swiglu
+
+    rows, hidden, combined = 512, 256, 256
+    inputs = dict(
+        a_tensor=jnp.full((rows, hidden), 0.125, ml_dtypes.float8_e4m3fn),
+        b_tensor=jnp.concatenate(
+            [
+                jnp.full((1, combined, hidden), 0.125, ml_dtypes.float8_e4m3fn),
+                jnp.full((1, combined, hidden), 0.25, ml_dtypes.float8_e4m3fn),
+            ]
+        ),
+        sfa_tensor=jnp.full((1, 4, 2, 32, 4, 4), 127, jnp.uint8),
+        sfb_tensor=jnp.full((2, 2, 2, 32, 4, 4), 127, jnp.uint8),
+        padded_offsets=jnp.array([256, 512], jnp.int32),
+        alpha_tensor=jnp.ones((2,), jnp.float32),
+        prob_tensor=jnp.ones((rows,), jnp.float32),
+        norm_const_tensor=jnp.ones((1,), jnp.float32),
+    )
+    result = jax.jit(lambda **kwargs: grouped_gemm_swiglu(**kwargs, discrete_col_sfd=True))(**inputs)
+    np.testing.assert_array_equal(np.asarray(result["c_tensor"])[:256], 4)
+    np.testing.assert_array_equal(np.asarray(result["c_tensor"])[256:], 8)
+    col_scales = np.asarray(result["sfd_col_tensor"]).view(np.uint8).reshape(2, -1)
+    assert np.all((col_scales > 0) & (col_scales < 255))
+    assert np.unique(col_scales[0]).size == np.unique(col_scales[1]).size == 1
+    assert col_scales[0, 0] != col_scales[1, 0]
+
+
+@pytest.mark.L0
 def test_grouped_gemm_swiglu_jax_rejected_with_clear_error():
     from cudnn.frost.buffers import cutedsl_requirement_error
 
