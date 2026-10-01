@@ -73,6 +73,8 @@ def grouped_gemm_glu(
     buffers contain E8M0 MMA atom bytes in physical row-major form. Offsets
     are cumulative 256-aligned expert ends. The returned keys match the
     PyTorch GLU wrapper; C is retained for the separate backward operation.
+    Data outputs are uninitialized for inactive padding, while scale-factor
+    outputs are initialized for padded rows.
     """
     from cudnn.api_base import is_sm107_device
 
@@ -161,7 +163,7 @@ def grouped_gemm_glu(
         output_shape_dtype=outputs,
         input_spec=(operand, TensorSpec(mode=(1, 2, 0)), None, None, None, None, None, None),
         output_spec=(operand, operand, operand, None, None, None),
-        initialized_outputs={0: zeros_init, 1: zeros_init, 2: zeros_init, 3: sf_zeros, 4: sf_zeros},
+        initialized_outputs={3: sf_zeros, 4: sf_zeros},
         kernel=kernel,
         mac=mac,
     )(

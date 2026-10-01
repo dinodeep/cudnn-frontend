@@ -54,7 +54,8 @@ def grouped_gemm_swiglu(
     must be nondecreasing multiples of 256 within [0,m]; m is padded to 256.
     SF buffers contain packed E8M0 MMA-tiled bytes, at any dense rank (uint8
     bit patterns also accepted). Outputs use natural 2-D shapes and physical
-    6-D SF buffers. Output storage is zero-initialized for untouched padding.
+    6-D SF buffers. Data outputs are uninitialized for inactive padding, as in
+    the PyTorch path; scale-factor buffers are initialized for padded rows.
     Only FP8 A/B and FP8 D are supported. No automatic differentiation rule;
     use cudnn.jax.grouped_gemm_dswiglu for the fused backward operation.
     """
@@ -87,6 +88,7 @@ def grouped_gemm_swiglu(
         mac,
         tuple(output_type(t.shape, t.dtype) for t in inputs.values()),
         tuple(outputs.values()),
+        backward=False,
     )(*inputs.values())
     return TupleDict(
         c_tensor=result[0],

@@ -58,7 +58,8 @@ def grouped_gemm_dswiglu(
     within [0,m]; m is padded to 256. SF buffers contain packed E8M0 MMA-tiled
     bytes at any dense rank (uint8 bit patterns also accepted). Returns
     D_row/D_col (m,2n), dprob (m,), and physical 6-D SF buffers. Output storage
-    is zero-initialized for padding and dprob accumulation. Only FP8 A/B/D.
+    initializes dprob for accumulation and scale factors for padded rows; data
+    outputs are uninitialized for inactive padding. Only FP8 A/B/D.
     """
     inputs = dict(
         a=a_tensor,
@@ -91,6 +92,7 @@ def grouped_gemm_dswiglu(
         mac,
         tuple(output_type(t.shape, t.dtype) for t in inputs.values()),
         tuple(outputs.values()),
+        backward=True,
     )(*inputs.values())
     return TupleDict(
         d_row_tensor=result[0],
